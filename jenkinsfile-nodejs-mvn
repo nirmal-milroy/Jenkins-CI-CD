@@ -1,0 +1,134 @@
+pipeline {
+    agent any
+	
+	tools {
+		//Install these plugins and configured in Manage Jenkins option
+        maven 'MVN-3.6' 
+        jdk 'JDK1.8' 
+		nodejs "Node-14"
+    }
+    
+    parameters {
+		//install GitParameter plugin
+        gitParameter name: 'TAG', 
+                     type: 'PT_TAG',
+                     defaultValue: 'master'
+    }
+	
+    environment {
+		//setting pom path if project parent pom is in differnt location
+        POM_PATH = 'iwallet/pom.xml'
+		
+		//Setup environment variables to read pom and use different stage setup
+        POM_VERSION =0
+        POM_ArtifactId=0
+        IS_SNAPSHOT =0
+        
+    }
+    
+    stages { 
+	
+		stage('Clean') {
+                steps { 
+					cleanWs()
+    			    echo "Cleaning workspace Success"
+    			    
+    			    }
+                 }
+	
+	
+        stage('Gitea') {
+            steps {
+			//Git checkout by TAGs
+                checkout([$class: 'GitSCM', 
+                branches: [[name: "${params.TAG}"]],
+                doGenerateSubmoduleConfigurations: false,
+                extensions: [], 
+                gitTool: 'Default',
+                submoduleCfg: [],
+                userRemoteConfigs: [[credentialsId: '09464c1f-12b2-4a28-a017-9a69290a34c3', url: 'https://isvn.hitachi-dps.com/git/PHL-PFS_PalwanPay/PHL-PFS_PalwanPay-WLT.git']]])
+            }
+        }
+            
+              stage('Initialize') {
+                steps { 
+    			    echo "PATH = ${PATH}"
+                    echo "M2_HOME = ${M2_HOME}"
+    			    //echo "ArtifactId = ${ArtifactId}"
+                    //echo "P_Version = ${P_Version}"
+                script {
+
+                    if (isUnix()) {
+                        def pom = readMavenPom file: POM_PATH
+                        // get the current development version
+                        POM_VERSION=pom.version
+						POM_ArtifactId=pom.ArtifactId
+                        print pom.version
+						print pom.ArtifactId
+                        echo "Unix platform POM_VERSION=${POM_VERSION}"
+						echo "Unix platform POM_ArtifactId=${POM_ArtifactId}"
+
+                    } else {
+                        def pom = readMavenPom file: 'iwallet/pom.xml'
+                        POM_VERSION=pom.version
+						POM_ArtifactId=pom.ArtifactId
+                        print pom.version
+						print pom.ArtifactId
+						echo "Windows POM_ArtifactId=${POM_ArtifactId}"
+                        echo "Windows POM_VERSION=${POM_VERSION}"
+                          
+                    }
+                }
+                    
+					
+                     }
+        			    
+                    
+                }
+            
+            
+            
+            stage('Restore Npm Packages') {
+                steps {
+					nodejs(cacheLocationStrategy: workspace(), nodeJSInstallationName: 'Node-14') {
+					// some block
+					}
+				
+
+     			    } 
+                }
+            
+          
+	        stage('Build') {
+                steps {
+                        echo "sh mvn -Dintegration-tests.skip=true  clean package"
+                        sh 'mvn -f ${POM_PATH} clean package -X -Dmaven.test.failure.ignore=true -DskipTests=true -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true ' 
+                        
+                            
+				}
+            post {
+                success {
+					// execute the unit testing and collect the reports
+                    echo " junit '**//*target/surefire-reports/TEST-*.xml' "
+                    echo " archive 'target*//*.jar' "
+					}
+				}
+            }
+            
+            stage('Sonar tests') {
+                  steps {
+                        echo "Skipping Quality Analysis ..." 
+                        
+                          
+                    
+                            
+                  }         
+            }
+               
+                
+        
+    }
+	
+}    
+             
+            

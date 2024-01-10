@@ -1,0 +1,223 @@
+pipeline {
+ 
+    agent any
+	
+    tools { 
+ 
+        
+        nodejs 'NODE14'
+       
+        
+    }
+    
+    parameters {
+ 
+        gitParameter name: 'TAG', 
+                     type: 'PT_TAG',
+                     defaultValue: 'origin/master'
+            
+    }
+   
+    environment {
+ 
+        //registry = "container-registry.hitachi-dps.com/ibsuite-releases"
+        registryCredential = 'jfrog1'
+       // dockerImage = ''
+      //  ziplocation=''
+        POM_PATH = 'pom.xml'
+        POM_VERSION =0
+      //  docker_tagname = "container-registry.hitachi-dps.com/ibsuite-releases" + "/${JOB_NAME.toLowerCase()}" + ":$BUILD_NUMBER"
+ 
+    }
+    
+    stages {
+        
+        stage('Clean') {
+            
+            steps { 
+            
+                cleanWs()
+                echo "Cleaning Success"
+    			    
+            }
+            
+        }
+        
+        stage('Gitea') {
+            
+            steps {
+                
+                checkout([$class: 'GitSCM', 
+                branches: [[name: "${params.TAG}"]],
+                doGenerateSubmoduleConfigurations: false,
+                extensions: [], 
+                gitTool: 'git-2.9',
+                submoduleCfg: [],
+                userRemoteConfigs: [[credentialsId: '09464c1f-12b2-4a28-a017-9a69290a34c3', url: 'https://isvn.hitachi-dps.com/git/LKA_IBL_ISUITE/LKA_IBL_ISUITE-loyalty_FrontEnd.git']]])
+            
+            }
+        }
+        
+        
+        
+         stage('Restore Npm Packages') {
+                steps {
+					nodejs(cacheLocationStrategy: workspace(), nodeJSInstallationName: 'NODE14') {
+					sh   'npm install --save-dev @cyclonedx/bom'
+					}
+				
+    			    echo "Restore Packages"    
+    			    echo "PATH = ${PATH}" 
+     			    } 
+                }
+        
+        stage('Build') {
+		   
+            steps {
+                
+            script {
+			
+			def packageJSON = readJSON file: 'package.json'
+				
+            def packageJSONVersion = packageJSON.version
+            def packageJSONVersion1 = packageJSON.version
+            
+            packageJSONVersion1=packageJSONVersion.replaceAll("-",".")
+            
+            
+            
+          // packageJSONVersion = StringUtils.stripEnd(packageJSONVersion, "-")
+          
+            echo "after replace the - $packageJSONVersion1"
+        
+			
+             if ("${params.TAG}" == "$packageJSONVersion1") {
+                        echo 'packageJSONVersion and TAG version are same'
+						
+		
+                //sh 'mvn -f pom.xml clean install package -DskipTests=true -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true -X ' 
+             //sh 'npm install --legacy-peer-deps'
+             //sh 'npm run-script build'
+             
+             
+             //sh "VERSION=${packageJSONVersion}_${BUILD_NUMBER}_${params.TAG} npm run build"
+             
+             
+			 
+			 }
+			 
+			 else {
+                        echo " packageJSONVersion $packageJSONVersion not equal to  TAG version ${params.TAG} "
+                sh   'npm -version'
+                sh   'CI=false' 
+                 
+                sh   'npm install'
+                sh   'npm run build'
+                //sh   'npx cyclonedx-bom  --output-file="sbom.json"' 
+                sh      'npx cyclonedx-bom -o sbom.xml --schema=$packageJSONVersion1 '
+                        
+                    
+			     //mail to: {'nirmal.milroy@hitachi-dps.com'}, subject: "Build Failed: ${currentBuild.fullDisplayName}",body: "This is the build ${env.BUILD_URL}"
+			 }
+			 
+            }  
+               
+            }
+                
+            post {
+                    
+                success {
+            
+                    script{
+                        
+                       archiveArtifacts artifacts: '*', fingerprint: true
+            
+                    }
+                }
+                   
+                failure {                        
+                   
+                    mail to: {'nirmal.milroy@hitachi-dps.com'}, subject: "Build Failed: ${currentBuild.fullDisplayName}",body: "This is the build ${env.BUILD_URL}"
+                   
+                    cleanWs()
+                        
+                }
+            
+            }
+
+        }
+        
+     /*   
+        stage('Building image') {
+            
+            steps {
+                
+                script {
+                        
+                    echo "trying to build the image"
+                        
+                    def dockerImage = docker.build docker_tagname 
+                        
+                }
+                
+            }
+            
+        }
+        
+        stage('Push Image') {
+        
+            steps{
+        
+                script {
+        
+                    echo "trying to push the image"
+                    echo "docker tag name is ${docker_tagname}"
+        
+                    docker.withRegistry( 'https://container-registry.hitachi-dps.com', registryCredential ) {
+        
+                    sh  "docker push $docker_tagname"
+                    //dockerImage.push('')
+        
+                    }
+        
+                    echo "Successfully pushed the image"
+        
+                }
+        
+            }
+            
+        }
+        
+        stage('Cleaning up') { 
+
+            steps { 
+        
+                sh "docker rmi $docker_tagname" 
+                echo "Success to cleaning the image"
+
+            }
+
+        }
+    
+       stage(" execute Ansible") {
+            
+            steps {
+                    
+                echo "${docker_tagname} "
+                        
+                ansiblePlaybook colorized: true, 
+                credentialsId: 'ansible_user', 
+                disableHostKeyChecking: true, 
+                installation: 'ansible', 
+                inventory: '/ansible_playbooks/deploy-docker-container/inventory', 
+                playbook: '/ansible_playbooks/deploy-docker-container/deploy-ibsuite-icard-web-container.yml',
+                extras: '-e "docker_image_url=$docker_tagname"'  
+                    
+            }    
+            
+        }
+		*/
+    
+    }
+
+}

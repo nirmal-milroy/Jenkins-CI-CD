@@ -1,0 +1,25 @@
+pipeline {
+    agent any
+    
+    environment{
+        
+        docker_tagname = 'xxxxxxx.com/docker/xxxxx.webtools_app-registry:24 '
+       
+    }
+    
+    
+    stages {
+        stage(" execute Ansible") {
+           steps {
+               
+                ansiblePlaybook colorized: true, 
+				credentialsId: 'ansible_user', 
+				disableHostKeyChecking: true, 
+				installation: 'ansible', 
+				inventory: '/ansible_playbooks/deploy-docker-container/inventory', 
+				playbook: '/ansible_playbooks/deploy-docker-container/deploy-docker-container-variable.yml',
+				extras: '-e "docker_image_url=$docker_tagname"'
+            }    
+        }    
+    }
+}

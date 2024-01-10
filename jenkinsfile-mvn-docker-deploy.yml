@@ -1,0 +1,136 @@
+pipeline {
+    agent any
+	
+	tools { 
+        maven 'mvn3' 
+        jdk 'JDK8' 
+		nodejs "NODE14"
+    }
+    
+    parameters {
+        gitParameter name: 'TAG', 
+                     type: 'PT_TAG',
+                     defaultValue: 'master'
+    }
+   
+    environment {
+        registry = "container-registry.hitachi-dps.com/docker"
+        registryCredential = 'jfrog1'
+        dockerImage = ''
+        docker_tagname=''
+    }
+   
+    stages { 
+	
+		stage('Clean') {
+                steps { 
+					cleanWs()
+    			    echo "Cleaning Success"
+    			    
+    			    }
+                 }
+	
+	
+        stage('Gitea') {
+            steps {
+                checkout([$class: 'GitSCM', 
+                branches: [[name: "${params.TAG}"]],
+                doGenerateSubmoduleConfigurations: false,
+                extensions: [], 
+                gitTool: 'Default',
+                submoduleCfg: [],
+                userRemoteConfigs: [[credentialsId: '079dea1b-7022-44fc-95d9-5bbacf554494', url: 'https://xxxxxxxxxGATEWAY.git']]])
+            }
+        }
+            
+              stage('Initialize') {
+                steps { 
+    			    echo "PATH = ${PATH}"
+                    echo "M2_HOME = ${M2_HOME}"
+    			    
+                              
+                     }
+        			    
+                    
+                }
+            
+            
+            
+            stage('Restore Npm Packages') {
+                steps {
+					nodejs(cacheLocationStrategy: workspace(), nodeJSInstallationName: 'NODE14') {
+					// some block
+					}
+				
+    			    echo "Restore Packages"    
+    			    echo "PATH = ${PATH}" 
+     			    } 
+                }
+            
+          
+	        stage('Build') {
+                steps {
+                sh 'mvn -f gateway/pom.xml clean install package -DskipTests=true -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true -X ' 
+				}
+            post {
+               success {
+                       archiveArtifacts artifacts: 'gateway/target/*.jar', fingerprint: true
+                       }
+                   failure {                        
+                       mail to: {'xxxx'}, subject: "Build Failed: ${currentBuild.fullDisplayName}",body: "This is the build ${env.BUILD_URL}"
+                       cleanWs()
+                        
+                    }
+				}
+            }
+            
+            stage('Building image') {
+                steps{
+                    script {
+                        echo "trying to build the image"
+                        docker_tagname = registry + "/${JOB_NAME.toLowerCase()}" + ":$BUILD_NUMBER"
+                        def dockerImage = docker.build docker_tagname ,"gateway" 
+                        //dockerImage = docker.build("xxxxx.com/docker/mynirmal3", "gateway")
+                        
+                        
+                    }
+                    }
+            }
+            stage('Deploy Image') {
+                steps{
+                    script {
+                        echo "trying to deploy the image"
+                        echo "docker tag name is ${docker_tagname}"
+                        docker.withRegistry( 'https://xxxxx.com', registryCredential ) {
+                        sh  "docker push $docker_tagname"
+                        //dockerImage.push('')
+                        }
+                        echo "Success to deploy the image"
+                    }
+                }
+                
+            
+            }
+            
+
+            stage('Cleaning up') { 
+
+                steps { 
+                    sh "docker rmi $docker_tagname" 
+                    echo "Success to cleaning the image"
+
+                }
+
+            } 
+
+
+            
+            
+               
+                
+        
+    }
+	
+}    
+             
+            

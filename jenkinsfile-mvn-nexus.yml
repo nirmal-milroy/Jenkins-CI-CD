@@ -1,0 +1,171 @@
+pipeline {
+    agent any
+	
+	tools { 
+        maven 'MVN-3.8' 
+        jdk 'JDK8' 
+		nodejs "NODE-14.19"
+		
+    }
+    
+    parameters {
+        gitParameter name: 'TAG', 
+                     type: 'PT_TAG',
+                     defaultValue: 'master'
+    }
+	
+    environment {
+        POM_PATH = 'gateway/pom.xml'
+        POM_VERSION =0
+        POM_ArtifactId=0
+        POM_GroupId=0
+        IS_SNAPSHOT =0
+        
+        //NexusRepo=0
+        
+        
+    }
+    
+    stages { 
+	
+        stage('Clean') {
+                steps { 
+					cleanWs()
+    			    echo "Cleaning Success"
+    			    
+    			    }
+                 }
+	
+	
+        stage('Gitea') {
+            steps {
+                checkout([$class: 'GitSCM', 
+                branches: [[name: "${params.TAG}"]],
+                doGenerateSubmoduleConfigurations: false,
+                extensions: [], 
+                gitTool: 'Default',
+                submoduleCfg: [],
+                userRemoteConfigs: [[credentialsId: 'cb82d73b-b830-4274-b60b-6c9852c46fd0', url: 'https://xxxxxxxxxGATEWAY.git']]])
+            }
+        }
+            
+        stage('Initialize') {
+                steps { 
+    			    echo "PATH = ${PATH}"
+                    echo "M2_HOME = ${M2_HOME}"
+    			    echo "Job_NAME = ${JOB_NAME}"
+                    //echo "P_Version = ${P_Version}"
+                    
+                    script {
+
+                    if (isUnix()) {
+                        def pom = readMavenPom file: POM_PATH
+                        // get the current development version
+                        POM_VERSION=pom.version
+                        POM_ArtifactId=pom.artifactId
+                        POM_GroupId=pom.groupId
+                        print pom.artifactId
+                        print pom.groupId
+                        print pom.version
+                        
+                        echo "Unix platform POM_VERSION=${POM_VERSION}"
+                        IS_SNAPSHOT = POM_VERSION.endsWith("SNAPSHOT") ? "SNAPSHOT" : "MASTER-RELEASE"
+                        echo "Unix platform POM_VERSION is a ${IS_SNAPSHOT}"
+
+                    } else {
+                        def pom = readMavenPom file: 'gateway/pom.xml'
+                        POM_VERSION=pom.version
+                        print pom.version
+                        IS_SNAPSHOT = POM_VERSION.endsWith("SNAPSHOT") ? "SNAPSHOT" : "MASTER-RELEASE"
+                        echo "Windows POM_VERSION is a ${IS_SNAPSHOT}"
+                        
+                    }
+                }
+                    
+					
+                     }
+        			    
+                    
+                }
+            
+            
+            
+        stage('Restore Npm Packages') {
+                steps {
+                        nodejs(cacheLocationStrategy: workspace(), nodeJSInstallationName: 'NODE-14.19' ) {
+                        // some block
+                        }
+				
+
+                        }   
+                }
+            
+          
+        stage('Build') {
+                steps {
+                    script {
+
+                        if (IS_SNAPSHOT=='SNAPSHOT') {
+                           echo "POM_VERSION is a ${IS_SNAPSHOT}"
+                           sh 'mvn -f ${POM_PATH} clean install package -DskipTests=true -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true'
+                           
+                           
+
+                    } else {
+                        echo "POM_VERSION=${IS_SNAPSHOT}" 
+                        sh 'mvn -f ${POM_PATH} clean install package -DskipTests=true -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true'
+                        
+                    }
+                }
+                    
+ 
+                    
+				}
+            post {
+                success {
+                       archiveArtifacts artifacts: 'gateway/target/*.jar', fingerprint: true
+                       }
+                   failure {                        
+                       mail to: {'nirmal.milroy@hitachi-dps'}, subject: "Build Failed: ${currentBuild.fullDisplayName}",body: "This is the build ${env.BUILD_URL}"
+                       cleanWs()
+                        
+                    }
+				}
+            }
+            
+        stage('Running Nexus') {
+                steps {
+                      script {
+                        echo "Running Nexus ..." 
+                        def NexusRepo = POM_VERSION.endsWith("SNAPSHOT") ? "nirmal" : "nirmal-release"
+                        nexusArtifactUploader artifacts: 
+                        [
+                        [artifactId: "${POM_ArtifactId}", 
+                        classifier: '', 
+                        file: "gateway/target/api-gateway-deploy.tar.gz", 
+                        type: 'tar.gz'],
+                        [artifactId: "${POM_ArtifactId}", 
+                        classifier: '', 
+                        file: "gateway/target/api-gateway.jar", 
+                        type: 'jar']
+                        ], 
+                        credentialsId: 'nexus-0.137', 
+                        groupId: "${JOB_NAME}", 
+                        nexusUrl: '192.168.0.137:8081', 
+                        nexusVersion: 'nexus3', 
+                        protocol: 'http', 
+                        repository: "${NexusRepo}", 
+                        version: "${POM_VERSION}"
+                  
+                      }   
+                            
+                  }         
+            }
+               
+                
+        
+    }
+	
+}    
+             
+            
